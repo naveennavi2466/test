@@ -1,55 +1,47 @@
 import requests
 import json
 
-# List of environments and existing admin API tokens
-with open("envs_with_admin_tokens.json") as f:
+# Windows-style path (use double backslashes or raw string)
+file_path = r"C:\Users\YourUsername\Documents\envs_with_admin_tokens.json"
+
+# Load environment list
+with open(file_path, "r") as f:
     environments = json.load(f)
 
-# Define required scopes
-required_scopes = [
-    "Read deployment information"
-]
+# Output data
+all_activegates = []
 
-# Define name of the new token
-token_name = "auto-created-token-for-ag-info"
-
-# Output structure
-created_tokens = []
-
+# Loop through each environment and make a GET request
 for env in environments:
-    env_id = env["env_id"]
-    admin_token = env["api_token"]
+    env_id = env['env_id'].replace("https://", "").rstrip("/")
+    api_token = env['api_token']
 
-    url = f"https://{env_id}/api/v2/apiTokens"
+    url = f"https://{env_id}/api/v1/deployment/installer/agent/activeGates"
     headers = {
-        "Authorization": f"Api-Token {admin_token}",
+        "Authorization": f"Api-Token {api_token}",
         "Content-Type": "application/json"
     }
 
-    payload = {
-        "name": token_name,
-        "scopes": required_scopes
-    }
-
     try:
-        resp = requests.post(url, headers=headers, json=payload)
-        resp.raise_for_status()
-        data = resp.json()
-        created_tokens.append({
-            "env_id": env_id,
-            "token": data["token"],
-            "id": data["id"]
+        print(f"🔍 Fetching ActiveGates from {env_id}...")
+        response = requests.get(url, headers=headers, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        all_activegates.append({
+            "environment": env_id,
+            "activegates": data
         })
-        print(f"✅ Token created in {env_id}")
+        print(f"✅ Success: {env_id}")
     except requests.exceptions.RequestException as e:
-        print(f"❌ Failed to create token in {env_id}: {e}")
-        created_tokens.append({
-            "env_id": env_id,
+        print(f"❌ Error for {env_id}: {e}")
+        all_activegates.append({
+            "environment": env_id,
             "error": str(e)
         })
 
-# Save output to file
-with open("created_tokens.json", "w") as f:
-    json.dump(created_tokens, f, indent=2)
+# Save results to JSON
+output_path = r"C:\Users\YourUsername\Documents\all_activegates.json"
+with open(output_path, "w") as f:
+    json.dump(all_activegates, f, indent=2)
 
-print("🔐 All tokens processed. Check created_tokens.json")
+print(f"\n✅ All done! Results saved to:\n{output_path}")
