@@ -1,0 +1,55 @@
+import requests
+import json
+
+# List of environments and existing admin API tokens
+with open("envs_with_admin_tokens.json") as f:
+    environments = json.load(f)
+
+# Define required scopes
+required_scopes = [
+    "Read deployment information"
+]
+
+# Define name of the new token
+token_name = "auto-created-token-for-ag-info"
+
+# Output structure
+created_tokens = []
+
+for env in environments:
+    env_id = env["env_id"]
+    admin_token = env["api_token"]
+
+    url = f"https://{env_id}/api/v2/apiTokens"
+    headers = {
+        "Authorization": f"Api-Token {admin_token}",
+        "Content-Type": "application/json"
+    }
+
+    payload = {
+        "name": token_name,
+        "scopes": required_scopes
+    }
+
+    try:
+        resp = requests.post(url, headers=headers, json=payload)
+        resp.raise_for_status()
+        data = resp.json()
+        created_tokens.append({
+            "env_id": env_id,
+            "token": data["token"],
+            "id": data["id"]
+        })
+        print(f"✅ Token created in {env_id}")
+    except requests.exceptions.RequestException as e:
+        print(f"❌ Failed to create token in {env_id}: {e}")
+        created_tokens.append({
+            "env_id": env_id,
+            "error": str(e)
+        })
+
+# Save output to file
+with open("created_tokens.json", "w") as f:
+    json.dump(created_tokens, f, indent=2)
+
+print("🔐 All tokens processed. Check created_tokens.json")
