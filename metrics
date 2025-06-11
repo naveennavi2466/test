@@ -1,0 +1,134 @@
+import requests
+import json
+import pandas as pd
+from datetime import datetime, timedelta
+
+# Windows-style path (use double backslashes or raw string)
+file_path = r"C:\Users\YourUsername\Documents\envs_with_admin_tokens.json"
+
+# Load environment list
+with open(file_path, "r") as f:
+    environments = json.load(f)
+
+# Output data
+all_activegates = []
+excel_data = []
+
+# Time range for the last 30 days
+now = datetime.utcnow()
+start_time = (now - timedelta(days=30)).isoformat() + "Z"
+end_time = now.isoformat() + "Z"
+
+# Loop through each environment and make GET requests
+for env in environments:
+    env_id = env['env_id'].replace("https://", "").rstrip("/")
+    api_token = env['api_token']
+
+    ag_url = f"https://{env_id}/api/v1/deployment/installer/agent/activeGates"
+    headers = {
+        "Authorization": f"Api-Token {api_token}",
+        "Content-Type": "application/json"
+    }
+
+    try:
+        print(f"🔍 Fetching ActiveGates from {env_id}...")
+        ag_response = requests.get(ag_url, headers=headers, timeout=10)
+        ag_response.raise_for_status()
+        ag_data = ag_response.json()
+
+        # Gather CPU, memory usage, and connected hosts for each ActiveGate host
+        enriched_activegates = []
+        for ag in ag_data.get("activeGates", []):
+            hostname = ag.get("networkAddress")
+            connected_hosts = ag.get("connectedHosts", [])
+            connected_host_count = len(connected_hosts) if connected_hosts else 0
+
+            # Find matching host entity
+            entity_id = None
+            search_url = f"https://{env_id}/api/v2/entities"
+            search_params = {
+                "entitySelector": f"type(HOST),properties.ipAddress({hostname})",
+                "pageSize": 1
+            }
+            try:
+                entity_resp = requests.get(search_url, headers=headers, params=search_params)
+                entity_resp.raise_for_status()
+                entities = entity_resp.json().get("entities", [])
+                if entities:
+                    entity_id = entities[0]["entityId"]
+            except Exception as search_err:
+                print(f"⚠️ Entity lookup failed for {hostname}: {search_err}")
+
+            cpu_usage, mem_usage = None, None
+
+            if entity_id:
+                cpu_url = f"https://{env_id}/api/v2/metrics/query"
+                cpu_params = {
+                    "metricSelector": "builtin:host.cpu.usage:avg",
+                    "resolution": "inf",
+                    "from": start_time,
+                    "to": end_time,
+                    "entitySelector": f"entityId({entity_id})"
+                }
+
+                mem_params = {
+                    "metricSelector": "builtin:host.mem.usage:avg",
+                    "resolution": "inf",
+                    "from": start_time,
+                    "to": end_time,
+                    "entitySelector": f"entityId({entity_id})"
+                }
+
+                try:
+                    cpu_resp = requests.get(cpu_url, headers=headers, params=cpu_params)
+                    cpu_resp.raise_for_status()
+                    cpu_result = cpu_resp.json()
+                    cpu_usage = cpu_result.get("result", [{}])[0].get("data", [[None, None]])[0][1]
+
+                    mem_resp = requests.get(cpu_url, headers=headers, params=mem_params)
+                    mem_resp.raise_for_status()
+                    mem_result = mem_resp.json()
+                    mem_usage = mem_result.get("result", [{}])[0].get("data", [[None, None]])[0][1]
+
+                except Exception as metric_err:
+                    print(f"⚠️ Metric fetch error for {hostname}: {metric_err}")
+
+            ag["avg_cpu_usage_30d"] = cpu_usage
+            ag["avg_mem_usage_30d"] = mem_usage
+            ag["connected_host_count"] = connected_host_count
+            enriched_activegates.append(ag)
+
+            # Collect row for Excel
+            excel_data.append({
+                "Environment": env_id,
+                "Host": hostname,
+                "CPU Usage (%)": cpu_usage,
+                "Memory Usage (%)": mem_usage,
+                "Connected Hosts": connected_host_count
+            })
+
+        all_activegates.append({
+            "environment": env_id,
+            "activegates": enriched_activegates
+        })
+
+        print(f"✅ Success: {env_id}")
+
+    except requests.exceptions.RequestException as e:
+        print(f"❌ Error for {env_id}: {e}")
+        all_activegates.append({
+            "environment": env_id,
+            "error": str(e)
+        })
+
+# Save results to JSON
+output_path = r"C:\Users\YourUsername\Documents\all_activegates.json"
+with open(output_path, "w") as f:
+    json.dump(all_activegates, f, indent=2)
+
+# Save to Excel
+excel_output_path = r"C:\Users\YourUsername\Documents\all_activegates.xlsx"
+df = pd.DataFrame(excel_data)
+df.to_excel(excel_output_path, index=False)
+
+print(f"\n✅ All done! Results saved to:\n{output_path}\n📊 Excel file saved to:\n{excel_output_path}")
