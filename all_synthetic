@@ -1,22 +1,12 @@
 import requests
 import json
 import pandas as pd
-from urllib.parse import quote_plus
-import datetime
-
-# Enable full debug logging to a file
-log_file_path = r"C:\Users\YourUsername\Documents\debug_log.txt"
-def log(message):
-    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    with open(log_file_path, "a", encoding="utf-8") as log_file:
-        log_file.write(f"[{timestamp}] {message}\n")
-    print(message)
 
 # Windows-style path
 file_path = r"C:\Users\YourUsername\Documents\envs_with_admin_tokens.json"
 
 # Load environment list
-with open(file_path, "r", encoding="utf-8") as f:
+with open(file_path, "r") as f:
     environments = json.load(f)
 
 excel_data = []
@@ -30,34 +20,23 @@ for env in environments:
     }
 
     try:
-        log(f"🔍 Fetching synthetic locations from {env_id}...")
+        print(f"🔍 Fetching synthetic locations from {env_id}...")
 
-        # Request locations
+        # Corrected endpoint for synthetic locations
         locations_url = f"https://{env_id}/api/v2/synthetic/locations"
-        log(f"➡️ GET {locations_url}")
-        log(f"Headers: {headers}")
         loc_response = requests.get(locations_url, headers=headers)
-        log(f"⬅️ Status: {loc_response.status_code}")
-        log(f"Response: {loc_response.text}")
         loc_response.raise_for_status()
         locations_data = loc_response.json()
 
         for loc in locations_data.get("locations", []):
-            loc_id = loc.get("entityId", loc.get("id", "N/A"))
+            loc_id = loc.get("id", "N/A")
             loc_name = loc.get("name", "N/A")
             ag_host = loc.get("host", "N/A")
             location_type = loc.get("type", "N/A")
 
-            raw_selector = f"type(SYNTHETIC_TEST),fromRelationships.runsOnSyntheticLocation('{loc_id}')"
-            selector = quote_plus(raw_selector)
-            monitors_url = f"https://{env_id}/api/v2/entities?entitySelector={selector}&fields=+properties"
-            log(f"🔎 Raw selector: {raw_selector}")
-            log(f"🔐 Encoded selector: {selector}")
-            log(f"➡️ GET {monitors_url}")
-            log(f"Headers: {headers}")
+            # Get monitors assigned to this synthetic location
+            monitors_url = f"https://{env_id}/api/v2/entities?entitySelector=type(SYNTHETIC_TEST),fromRelationships.runsOnSyntheticLocation(\"{loc_id}\")"
             mon_response = requests.get(monitors_url, headers=headers)
-            log(f"⬅️ Status: {mon_response.status_code}")
-            log(f"Response: {mon_response.text}")
             mon_response.raise_for_status()
             monitors_data = mon_response.json()
 
@@ -73,14 +52,14 @@ for env in environments:
                 "Monitor Types": ", ".join(monitor_types)
             })
 
-        log(f"✅ Success: {env_id}")
+        print(f"✅ Success: {env_id}")
 
     except requests.exceptions.RequestException as e:
-        log(f"❌ Error for {env_id}: {e}")
+        print(f"❌ Error for {env_id}: {e}")
 
 # Save to Excel
 excel_output_path = r"C:\Users\YourUsername\Documents\synthetic_activegates.xlsx"
 df = pd.DataFrame(excel_data)
 df.to_excel(excel_output_path, index=False)
 
-log(f"✅ All done! Synthetic ActiveGate info saved to: {excel_output_path}")
+print(f"\n✅ All done! Synthetic ActiveGate info saved to:\n{excel_output_path}")
