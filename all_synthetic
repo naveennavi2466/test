@@ -1,0 +1,93 @@
+import requests
+import json
+import pandas as pd
+
+# Windows-style path (use double backslashes or raw string)
+file_path = r"C:\Users\YourUsername\Documents\envs_with_admin_tokens.json"
+
+# Load environment list
+with open(file_path, "r") as f:
+    environments = json.load(f)
+
+# Output data
+all_activegates = []
+excel_data = []
+
+# Loop through each environment and make GET requests
+for env in environments:
+    env_id = env['env_id'].replace("https://", "").rstrip("/")
+    api_token = env['api_token']
+
+    ag_url = f"https://{env_id}/api/v1/deployment/installer/agent/activeGates"
+    headers = {
+        "Authorization": f"Api-Token {api_token}",
+        "Content-Type": "application/json"
+    }
+
+    try:
+        print(f"🔍 Fetching ActiveGates from {env_id}...")
+        ag_response = requests.get(ag_url, headers=headers, timeout=10)
+        ag_response.raise_for_status()
+        ag_data = ag_response.json()
+
+        enriched_activegates = []
+        for ag in ag_data.get("activeGates", []):
+            hostname = ag.get("networkAddress")
+            connected_hosts = ag.get("connectedHosts", [])
+            connected_host_count = len(connected_hosts) if connected_hosts else 0
+
+            ag_type_list = ag.get("type", [])
+            ag_type = ", ".join(ag_type_list)
+            ag_location = ag.get("location", "N/A")
+
+            is_synthetic = "SYNTHETIC" in ag_type_list
+            synthetic_monitor_count = 0
+
+            # If Synthetic, try to get processing synthetic monitor count (placeholder if available via another endpoint)
+            if is_synthetic:
+                # Placeholder for where you would insert logic to retrieve synthetic monitor load if available
+                synthetic_monitor_count = len(connected_hosts)  # Example placeholder logic
+
+            ag["connected_host_count"] = connected_host_count
+            ag["ag_type"] = ag_type
+            ag["ag_location"] = ag_location
+            ag["is_synthetic"] = is_synthetic
+            ag["synthetic_monitor_count"] = synthetic_monitor_count
+            enriched_activegates.append(ag)
+
+            # Collect row for Excel
+            excel_data.append({
+                "Environment": env_id,
+                "Host": hostname,
+                "Location": ag_location,
+                "Type": ag_type,
+                "Connected Hosts": connected_host_count,
+                "Is Synthetic": is_synthetic,
+                "Synthetic Monitor Count": synthetic_monitor_count
+            })
+
+        all_activegates.append({
+            "environment": env_id,
+            "activegates": enriched_activegates
+        })
+
+        print(f"✅ Success: {env_id}")
+
+    except requests.exceptions.RequestException as e:
+        print(f"❌ Error for {env_id}: {e}")
+        all_activegates.append({
+            "environment": env_id,
+            "error": str(e)
+        })
+
+# Save results to JSON
+output_path = r"C:\Users\YourUsername\Documents\all_activegates.json"
+with open(output_path, "w") as f:
+    json.dump(all_activegates, f, indent=2)
+
+# Save to Excel
+excel_output_path = r"C:\Users\YourUsername\Documents\all_activegates.xlsx"
+df = pd.DataFrame(excel_data)
+df.to_excel(excel_output_path, index=False)
+
+print(f"\n✅ All done! Results saved to:\n{output_path}\n📊 Excel file saved to:\n{excel_output_path}")
