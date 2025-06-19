@@ -22,20 +22,20 @@ for env in environments:
     try:
         print(f"🔍 Fetching synthetic locations from {env_id}...")
 
-        # Get synthetic locations (ActiveGates for synthetic monitoring)
-        locations_url = f"https://{env_id}/api/v2/entities?entitySelector=type(SYNTHETIC_LOCATION)&fields=+properties,+fromRelationships,+toRelationships"
+        # Corrected endpoint for synthetic locations
+        locations_url = f"https://{env_id}/api/v2/synthetic/locations"
         loc_response = requests.get(locations_url, headers=headers)
         loc_response.raise_for_status()
         locations_data = loc_response.json()
 
-        for loc in locations_data.get("entities", []):
-            loc_id = loc.get("entityId", "N/A")
-            loc_name = loc.get("displayName", "N/A")
-            ag_host = loc.get("properties", {}).get("hostName", "N/A")
-            location_type = loc.get("properties", {}).get("locationType", "N/A")
+        for loc in locations_data.get("locations", []):
+            loc_id = loc.get("id", "N/A")
+            loc_name = loc.get("name", "N/A")
+            ag_host = loc.get("host", "N/A")
+            location_type = loc.get("type", "N/A")
 
             # Get monitors assigned to this synthetic location
-            monitors_url = f"https://{env_id}/api/v2/entities?entitySelector=type(SYNTHETIC_TEST),fromRelationships.runsOnSyntheticLocation("{loc_id}")"
+            monitors_url = f"https://{env_id}/api/v2/entities?entitySelector=type(SYNTHETIC_TEST),fromRelationships.runsOnSyntheticLocation(\"{loc_id}\")"
             mon_response = requests.get(monitors_url, headers=headers)
             mon_response.raise_for_status()
             monitors_data = mon_response.json()
