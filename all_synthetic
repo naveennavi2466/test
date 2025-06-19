@@ -1,6 +1,7 @@
 import requests
 import json
 import pandas as pd
+from urllib.parse import quote_plus
 
 # Windows-style path
 file_path = r"C:\Users\YourUsername\Documents\envs_with_admin_tokens.json"
@@ -34,9 +35,11 @@ for env in environments:
             ag_host = loc.get("host", "N/A")
             location_type = loc.get("type", "N/A")
 
-            # Safely construct the monitor query
-            entity_selector = f"type(SYNTHETIC_TEST),fromRelationships.runsOnSyntheticLocation('{loc_id}')"
-            monitors_url = f"https://{env_id}/api/v2/entities?entitySelector={entity_selector}"
+            # Use quote_plus to encode the entire selector string correctly
+            raw_selector = f"type(SYNTHETIC_TEST),fromRelationships.runsOnSyntheticLocation('{loc_id}')"
+            selector = quote_plus(raw_selector)
+            monitors_url = f"https://{env_id}/api/v2/entities?entitySelector={selector}&fields=+properties"
+
             mon_response = requests.get(monitors_url, headers=headers)
             mon_response.raise_for_status()
             monitors_data = mon_response.json()
