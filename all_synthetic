@@ -25,6 +25,7 @@ for env in environments:
 
         # Corrected endpoint for synthetic locations
         locations_url = f"https://{env_id}/api/v2/synthetic/locations"
+        print(f"➡️ Requesting: {locations_url}")
         loc_response = requests.get(locations_url, headers=headers)
         loc_response.raise_for_status()
         locations_data = loc_response.json()
@@ -39,6 +40,7 @@ for env in environments:
             raw_selector = f"type(SYNTHETIC_TEST),fromRelationships.runsOnSyntheticLocation('{loc_id}')"
             selector = quote_plus(raw_selector)
             monitors_url = f"https://{env_id}/api/v2/entities?entitySelector={selector}&fields=+properties"
+            print(f"➡️ Requesting: {monitors_url}")
 
             mon_response = requests.get(monitors_url, headers=headers)
             mon_response.raise_for_status()
