@@ -1,65 +1,214 @@
+#!/usr/bin/env python3
+"""
+Dynatrace Synthetic ActiveGate Checker Script
+
+This script checks synthetic ActiveGate details across multiple Dynatrace environments,
+pulling information like hostname, location, and number of synthetic monitors running
+on each ActiveGate.
+
+Author: AI Assistant
+Date: 2024
+"""
+
 import requests
 import json
 import pandas as pd
+import os
+import time
+from typing import List, Dict, Optional
 
-# Windows-style path
-file_path = r"C:\Users\YourUsername\Documents\envs_with_admin_tokens.json"
-
-# Load environment list
-with open(file_path, "r") as f:
-    environments = json.load(f)
-
-excel_data = []
-
-for env in environments:
-    env_id = env['env_id'].replace("https://", "").rstrip("/")
-    api_token = env['api_token']
-
-    headers = {
-        "Authorization": f"Api-Token {api_token}"
-    }
-
+def load_environments_from_token_file(token_file: str = r"C:\Users\YourUsername\Documents\envs_with_admin_tokens.json") -> List[Dict]:
+    """Load environments from token file."""
+    if not os.path.exists(token_file):
+        print(f"❌ Token file {token_file} not found!")
+        print("Creating sample token file...")
+        create_sample_token_file(token_file)
+        return []
+    
     try:
-        print(f"🔍 Fetching synthetic locations from {env_id}...")
+        with open(token_file, "r") as f:
+            data = json.load(f)
+        return data.get("environments", [])
+    except Exception as e:
+        print(f"❌ Error loading token file: {e}")
+        return []
 
-        # Corrected endpoint for synthetic locations
-        locations_url = f"https://{env_id}/api/v2/synthetic/locations"
-        loc_response = requests.get(locations_url, headers=headers)
-        loc_response.raise_for_status()
-        locations_data = loc_response.json()
+def create_sample_token_file(token_file: str = r"C:\Users\YourUsername\Documents\envs_with_admin_tokens.json"):
+    """Create a sample token file."""
+    sample_data = {
+        "environments": [
+            {
+                "env_id": "ABC",
+                "api_token": "your-api-token-here"
+            },
+            {
+                "env_id": "DEF", 
+                "api_token": "your-api-token-here"
+            }
+        ]
+    }
+    
+    # Create directory if it doesn't exist
+    os.makedirs(os.path.dirname(token_file), exist_ok=True)
+    
+    with open(token_file, "w") as f:
+        json.dump(sample_data, f, indent=2)
+    
+    print(f"✅ Sample token file created at: {token_file}")
+    print("📝 Update it with your actual API tokens and run the script again.")
 
-        for loc in locations_data.get("locations", []):
+def fetch_synthetic_locations(env_id: str, api_token: str) -> Optional[Dict]:
+    """Fetch synthetic locations from Dynatrace environment."""
+    headers = {
+        "Authorization": f"Api-Token {api_token}",
+        "Content-Type": "application/json"
+    }
+    
+    try:
+        url = f"https://{env_id}.live.dynatrace.com/api/v2/synthetic/locations"
+        response = requests.get(url, headers=headers, timeout=30)
+        response.raise_for_status()
+        return response.json()
+    except requests.exceptions.RequestException as e:
+        print(f"❌ Error fetching locations from {env_id}: {e}")
+        return None
+
+def fetch_monitors_for_location(env_id: str, api_token: str, location_id: str) -> Optional[Dict]:
+    """Fetch monitors assigned to a specific synthetic location."""
+    headers = {
+        "Authorization": f"Api-Token {api_token}",
+        "Content-Type": "application/json"
+    }
+    
+    try:
+        url = f"https://{env_id}.live.dynatrace.com/api/v2/entities"
+        params = {
+            "entitySelector": f'type(SYNTHETIC_TEST),fromRelationships.runsOnSyntheticLocation("{location_id}")'
+        }
+        response = requests.get(url, headers=headers, params=params, timeout=30)
+        response.raise_for_status()
+        return response.json()
+    except requests.exceptions.RequestException as e:
+        print(f"❌ Error fetching monitors for location {location_id} in {env_id}: {e}")
+        return None
+
+def get_monitor_types(monitors_data: Dict) -> List[str]:
+    """Extract unique monitor types from monitors data."""
+    if not monitors_data or "entities" not in monitors_data:
+        return []
+    
+    monitor_types = set()
+    for monitor in monitors_data["entities"]:
+        monitor_type = monitor.get("properties", {}).get("type", "Unknown")
+        monitor_types.add(monitor_type)
+    
+    return list(monitor_types)
+
+def main():
+    """Main function to check synthetic ActiveGates across all environments."""
+    print("🚀 Dynatrace Synthetic ActiveGate Checker")
+    print("=" * 50)
+    
+    # Load environments from token file
+    environments = load_environments_from_token_file()
+    
+    if not environments:
+        print("❌ No environments found. Please check your token.json file.")
+        return
+    
+    print(f"📋 Found {len(environments)} environment(s) to check")
+    print()
+    
+    excel_data = []
+    successful_envs = 0
+    failed_envs = 0
+    
+    for i, env in enumerate(environments, 1):
+        env_id = env.get('env_id')
+        api_token = env.get('api_token')
+        
+        if not env_id or not api_token:
+            print(f"⚠️  Skipping environment {i}: Missing env_id or api_token")
+            failed_envs += 1
+            continue
+        
+        print(f"🔍 [{i}/{len(environments)}] Fetching synthetic locations from {env_id}...")
+        
+        # Fetch synthetic locations
+        locations_data = fetch_synthetic_locations(env_id, api_token)
+        
+        if not locations_data:
+            print(f"❌ Failed to fetch locations from {env_id}")
+            failed_envs += 1
+            continue
+        
+        locations = locations_data.get("locations", [])
+        print(f"   📍 Found {len(locations)} synthetic location(s)")
+        
+        # Process each location
+        for loc in locations:
             loc_id = loc.get("id", "N/A")
             loc_name = loc.get("name", "N/A")
             ag_host = loc.get("host", "N/A")
             location_type = loc.get("type", "N/A")
-
-            # Get monitors assigned to this synthetic location
-            monitors_url = f"https://{env_id}/api/v2/entities?entitySelector=type(SYNTHETIC_TEST),fromRelationships.runsOnSyntheticLocation(\"{loc_id}\")"
-            mon_response = requests.get(monitors_url, headers=headers)
-            mon_response.raise_for_status()
-            monitors_data = mon_response.json()
-
-            monitor_count = len(monitors_data.get("entities", []))
-            monitor_types = list(set(m.get("properties", {}).get("type", "N/A") for m in monitors_data.get("entities", [])))
-
+            
+            # Get monitors assigned to this location
+            monitors_data = fetch_monitors_for_location(env_id, api_token, loc_id)
+            
+            if monitors_data:
+                monitor_count = len(monitors_data.get("entities", []))
+                monitor_types = get_monitor_types(monitors_data)
+            else:
+                monitor_count = 0
+                monitor_types = []
+            
+            # Add to excel data
             excel_data.append({
                 "Environment": env_id,
                 "Hostname": ag_host,
                 "Location": loc_name,
                 "Location Type": location_type,
                 "Monitor Count": monitor_count,
-                "Monitor Types": ", ".join(monitor_types)
+                "Monitor Types": ", ".join(monitor_types) if monitor_types else "None"
             })
+        
+        print(f"✅ Success: {env_id} - {len(locations)} locations processed")
+        successful_envs += 1
+        
+        # Add delay to avoid rate limiting
+        if i < len(environments):
+            time.sleep(1)
+    
+    print()
+    print("=" * 50)
+    print(f"📊 Summary:")
+    print(f"   ✅ Successful environments: {successful_envs}")
+    print(f"   ❌ Failed environments: {failed_envs}")
+    print(f"   📍 Total locations found: {len(excel_data)}")
+    
+    if excel_data:
+        # Save to Excel with Windows-style path
+        output_filename = r"C:\Users\YourUsername\Documents\synthetic_activegates.xlsx"
+        
+        # Create directory if it doesn't exist
+        os.makedirs(os.path.dirname(output_filename), exist_ok=True)
+        
+        df = pd.DataFrame(excel_data)
+        df.to_excel(output_filename, index=False)
+        
+        print(f"\n✅ Report saved to: {output_filename}")
+        
+        # Display summary table
+        print("\n📋 Summary by Environment:")
+        summary = df.groupby("Environment").agg({
+            "Location": "count",
+            "Monitor Count": "sum"
+        }).rename(columns={"Location": "Locations", "Monitor Count": "Total Monitors"})
+        
+        for env, row in summary.iterrows():
+            print(f"   {env}: {row['Locations']} locations, {row['Total Monitors']} monitors")
+    else:
+        print("\n❌ No data to export")
 
-        print(f"✅ Success: {env_id}")
-
-    except requests.exceptions.RequestException as e:
-        print(f"❌ Error for {env_id}: {e}")
-
-# Save to Excel
-excel_output_path = r"C:\Users\YourUsername\Documents\synthetic_activegates.xlsx"
-df = pd.DataFrame(excel_data)
-df.to_excel(excel_output_path, index=False)
-
-print(f"\n✅ All done! Synthetic ActiveGate info saved to:\n{excel_output_path}")
+if __name__ == "__main__":
+    main() 
